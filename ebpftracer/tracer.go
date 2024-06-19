@@ -18,7 +18,6 @@ import (
 	"github.com/coroot/coroot-node-agent/ebpftracer/l7"
 	"github.com/coroot/coroot-node-agent/proc"
 	"golang.org/x/mod/semver"
-	"golang.org/x/sys/unix"
 	"inet.af/netaddr"
 	"k8s.io/klog/v2"
 )
@@ -177,74 +176,106 @@ func (t *Tracer) ebpf(ch chan<- Event) error {
 		return fmt.Errorf("kernel tracing is not available: debugfs or tracefs must be mounted")
 	}
 
-	collectionSpec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(prg))
+	// collectionSpec, err := ebpf.LoadCollectionSpecFromReader(bytes.NewReader(prg))
+	// if err != nil {
+	// 	return fmt.Errorf("failed to load collection spec: %w", err)
+	// }
+	// _ = unix.Setrlimit(unix.RLIMIT_MEMLOCK, &unix.Rlimit{Cur: unix.RLIM_INFINITY, Max: unix.RLIM_INFINITY})
+	// c, err := ebpf.NewCollectionWithOptions(collectionSpec, ebpf.CollectionOptions{
+	// 	//Programs: ebpf.ProgramOptions{LogLevel: 2, LogSize: 20 * 1024 * 1024},
+	// })
+	// if err != nil {
+	// 	var verr *ebpf.VerifierError
+	// 	if errors.As(err, &verr) {
+	// 		klog.Errorf("%+v", verr)
+	// 	}
+	// 	return fmt.Errorf("failed to load collection: %w", err)
+	// }
+	// t.collection = c
+
+	// perfMaps := []perfMap{
+	// 	{name: "proc_events", typ: perfMapTypeProcEvents, perCPUBufferSizePages: 4},
+	// 	{name: "tcp_listen_events", typ: perfMapTypeTCPEvents, perCPUBufferSizePages: 4},
+	// 	{name: "tcp_connect_events", typ: perfMapTypeTCPEvents, perCPUBufferSizePages: 8},
+	// 	{name: "tcp_retransmit_events", typ: perfMapTypeTCPEvents, perCPUBufferSizePages: 4},
+	// 	{name: "file_events", typ: perfMapTypeFileEvents, perCPUBufferSizePages: 4},
+	// }
+
+	// if !t.disableL7Tracing {
+	// 	perfMaps = append(perfMaps, perfMap{name: "l7_events", typ: perfMapTypeL7Events, perCPUBufferSizePages: 32})
+	// }
+
+	// for _, pm := range perfMaps {
+	// 	r, err := perf.NewReader(t.collection.Maps[pm.name], pm.perCPUBufferSizePages*os.Getpagesize())
+	// 	if err != nil {
+	// 		t.Close()
+	// 		return fmt.Errorf("failed to create ebpf reader: %w", err)
+	// 	}
+	// 	t.readers[pm.name] = r
+	// 	go runEventsReader(pm.name, r, ch, pm.typ)
+	// }
+
+	// for _, programSpec := range collectionSpec.Programs {
+	// 	program := t.collection.Programs[programSpec.Name]
+	// 	if t.disableL7Tracing {
+	// 		switch programSpec.Name {
+	// 		case "sys_enter_writev", "sys_enter_write", "sys_enter_sendto", "sys_enter_sendmsg", "sys_enter_sendmmsg":
+	// 			continue
+	// 		case "sys_enter_read", "sys_enter_readv", "sys_enter_recvfrom", "sys_enter_recvmsg":
+	// 			continue
+	// 		case "sys_exit_read", "sys_exit_readv", "sys_exit_recvfrom", "sys_exit_recvmsg":
+	// 			continue
+	// 		}
+	// 	}
+	// 	var l link.Link
+	// 	switch programSpec.Type {
+	// 	case ebpf.TracePoint:
+	// 		parts := strings.SplitN(programSpec.AttachTo, "/", 2)
+	// 		l, err = link.Tracepoint(parts[0], parts[1], program, nil)
+	// 	case ebpf.Kprobe:
+	// 		if strings.HasPrefix(programSpec.SectionName, "uprobe/") {
+	// 			t.uprobes[programSpec.Name] = program
+	// 			continue
+	// 		}
+	// 		l, err = link.Kprobe(programSpec.AttachTo, program, nil)
+	// 	}
+	// 	if err != nil {
+	// 		t.Close()
+	// 		return fmt.Errorf("failed to link program: %w", err)
+	// 	}
+	// 	t.links = append(t.links, l)
+	// }
+
+	// new TCP accept hook frol ELF
+
+	klog.Infoln("load ebpf program")
+
+	colSpec, err := ebpf.LoadCollectionSpec("/home/ubuntu/coroot-node-agent/ebpf/tcptracer.o")
+	klog.Infoln("/home/ubuntu/coroot-node-agent/ebpf/tcptracer.o")
 	if err != nil {
 		return fmt.Errorf("failed to load collection spec: %w", err)
 	}
-	_ = unix.Setrlimit(unix.RLIMIT_MEMLOCK, &unix.Rlimit{Cur: unix.RLIM_INFINITY, Max: unix.RLIM_INFINITY})
-	c, err := ebpf.NewCollectionWithOptions(collectionSpec, ebpf.CollectionOptions{
-		//Programs: ebpf.ProgramOptions{LogLevel: 2, LogSize: 20 * 1024 * 1024},
+	col, err := ebpf.NewCollectionWithOptions(colSpec, ebpf.CollectionOptions{
+		Programs: ebpf.ProgramOptions{LogLevel: 1, LogSize: 20 * 1024 * 1024},
 	})
 	if err != nil {
-		var verr *ebpf.VerifierError
-		if errors.As(err, &verr) {
-			klog.Errorf("%+v", verr)
-		}
 		return fmt.Errorf("failed to load collection: %w", err)
 	}
-	t.collection = c
-
-	perfMaps := []perfMap{
-		{name: "proc_events", typ: perfMapTypeProcEvents, perCPUBufferSizePages: 4},
-		{name: "tcp_listen_events", typ: perfMapTypeTCPEvents, perCPUBufferSizePages: 4},
-		{name: "tcp_connect_events", typ: perfMapTypeTCPEvents, perCPUBufferSizePages: 8},
-		{name: "tcp_retransmit_events", typ: perfMapTypeTCPEvents, perCPUBufferSizePages: 4},
-		{name: "file_events", typ: perfMapTypeFileEvents, perCPUBufferSizePages: 4},
-	}
-
-	if !t.disableL7Tracing {
-		perfMaps = append(perfMaps, perfMap{name: "l7_events", typ: perfMapTypeL7Events, perCPUBufferSizePages: 32})
-	}
-
-	for _, pm := range perfMaps {
-		r, err := perf.NewReader(t.collection.Maps[pm.name], pm.perCPUBufferSizePages*os.Getpagesize())
-		if err != nil {
-			t.Close()
-			return fmt.Errorf("failed to create ebpf reader: %w", err)
-		}
-		t.readers[pm.name] = r
-		go runEventsReader(pm.name, r, ch, pm.typ)
-	}
-
-	for _, programSpec := range collectionSpec.Programs {
-		program := t.collection.Programs[programSpec.Name]
-		if t.disableL7Tracing {
-			switch programSpec.Name {
-			case "sys_enter_writev", "sys_enter_write", "sys_enter_sendto", "sys_enter_sendmsg", "sys_enter_sendmmsg":
-				continue
-			case "sys_enter_read", "sys_enter_readv", "sys_enter_recvfrom", "sys_enter_recvmsg":
-				continue
-			case "sys_exit_read", "sys_exit_readv", "sys_exit_recvfrom", "sys_exit_recvmsg":
-				continue
-			}
-		}
-		var l link.Link
+	for _, programSpec := range colSpec.Programs {
+		program := col.Programs[programSpec.Name]
+		// var l link.Link
 		switch programSpec.Type {
 		case ebpf.TracePoint:
 			parts := strings.SplitN(programSpec.AttachTo, "/", 2)
-			l, err = link.Tracepoint(parts[0], parts[1], program, nil)
+			_, err = link.Tracepoint(parts[0], parts[1], program, nil)
 		case ebpf.Kprobe:
-			if strings.HasPrefix(programSpec.SectionName, "uprobe/") {
-				t.uprobes[programSpec.Name] = program
-				continue
-			}
-			l, err = link.Kprobe(programSpec.AttachTo, program, nil)
+			_, err = link.Kprobe(programSpec.AttachTo, program, nil)
 		}
+		klog.Infof("attach prog: %s\n", programSpec.Name)
 		if err != nil {
 			t.Close()
 			return fmt.Errorf("failed to link program: %w", err)
 		}
-		t.links = append(t.links, l)
 	}
 
 	return nil
